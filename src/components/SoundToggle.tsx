@@ -56,78 +56,61 @@ export const SoundToggle = ({
   const statusLabel = getStatusLabel(status);
 
   return (
-    <div className="w-full min-w-0 rounded-2xl border border-border bg-background p-2 shadow-sm sm:w-[17rem] sm:min-w-[17rem]">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            if (isEnabled) {
-              onDisable();
-              return;
-            }
+    <div className="flex items-center gap-1.5 rounded-full border border-border bg-card/60 p-1">
+      <button
+        type="button"
+        onClick={() => {
+          if (isEnabled) {
+            onDisable();
+            return;
+          }
 
-            onEnableMode(recommendedMode === "off" ? "rain" : recommendedMode);
-          }}
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background ${
-            isEnabled
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-border bg-card text-foreground hover:bg-muted"
-          }`}
-          aria-label={isEnabled ? "사운드 끄기" : "사운드 켜기"}
-          aria-pressed={isEnabled}
-          title={isEnabled ? "사운드 끄기" : "사운드 켜기"}
-        >
-          {isEnabled ? (
-            <Volume2 className="h-5 w-5" aria-hidden="true" />
-          ) : (
-            <VolumeX className="h-5 w-5" aria-hidden="true" />
-          )}
-        </button>
+          onEnableMode(recommendedMode === "off" ? "rain" : recommendedMode);
+        }}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background ${
+          isEnabled
+            ? "bg-primary text-primary-foreground"
+            : "bg-transparent text-foreground hover:bg-muted/70"
+        }`}
+        aria-label={isEnabled ? "사운드 끄기" : "사운드 켜기"}
+        aria-pressed={isEnabled}
+        title={isEnabled ? `사운드 끄기 (${statusLabel})` : `사운드 켜기 (추천 ${getSoundModeLabel(recommendedMode)})`}
+      >
+        {isEnabled ? (
+          <Volume2 className="h-4 w-4" aria-hidden="true" />
+        ) : (
+          <VolumeX className="h-4 w-4" aria-hidden="true" />
+        )}
+      </button>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-xs font-bold text-muted-foreground">
-              {isEnabled ? getSoundModeLabel(activeMode) : `추천 ${getSoundModeLabel(recommendedMode)}`}
-            </p>
-            <p
-              className={`shrink-0 text-xs font-bold ${
-                status === "missing" || status === "blocked" ? "text-warning" : "text-primary"
+      <div className="flex items-center gap-0.5">
+        {modeOptions.map(({ icon: Icon, mode: optionMode }) => {
+          const isActive = mode === optionMode;
+          const isRecommended = !isEnabled && recommendedMode === optionMode;
+
+          return (
+            <button
+              key={optionMode}
+              type="button"
+              onClick={() => onEnableMode(optionMode)}
+              className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background ${
+                isActive
+                  ? "bg-primary text-primary-foreground"
+                  : isRecommended
+                    ? "bg-primary/15 text-primary"
+                    : "bg-transparent text-muted-foreground hover:bg-muted/70"
               }`}
+              aria-label={`${getSoundModeLabel(optionMode)} 모드 켜기`}
+              aria-pressed={isActive}
+              title={`${getSoundModeLabel(optionMode)}${isRecommended ? " · 추천" : ""}`}
             >
-              {statusLabel}
-            </p>
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-1">
-            {modeOptions.map(({ icon: Icon, mode: optionMode }) => {
-              const isActive = mode === optionMode;
-              const isRecommended = !isEnabled && recommendedMode === optionMode;
-
-              return (
-                <button
-                  key={optionMode}
-                  type="button"
-                  onClick={() => onEnableMode(optionMode)}
-                  className={`flex h-8 items-center justify-center rounded-xl border text-xs font-bold transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background ${
-                    isActive
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : isRecommended
-                        ? "border-primary/40 bg-primary/10 text-primary"
-                        : "border-border bg-card text-muted-foreground hover:bg-muted"
-                  }`}
-                  aria-label={`${getSoundModeLabel(optionMode)} 모드 켜기`}
-                  aria-pressed={isActive}
-                  title={isRecommended ? `${getSoundModeLabel(optionMode)} 추천` : getSoundModeLabel(optionMode)}
-                >
-                  <Icon className="h-4 w-4" aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
-        </div>
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          );
+        })}
       </div>
 
-      <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-        <span className="shrink-0">볼륨</span>
+      <label className="hidden items-center gap-1 px-1 text-[0.65rem] font-semibold text-muted-foreground xl:flex">
         <input
           type="range"
           min={0}
@@ -135,11 +118,13 @@ export const SoundToggle = ({
           step={0.05}
           value={volume}
           onChange={(event) => onVolumeChange(Number(event.target.value))}
-          className="min-w-0 flex-1 cursor-pointer"
+          className="w-16 cursor-pointer"
           aria-label="사운드 볼륨"
         />
-        <span className="w-8 text-right">{Math.round(volume * 100)}</span>
+        <span className="w-6 text-right tabular-nums">{Math.round(volume * 100)}</span>
       </label>
+
+      <span className="sr-only">{isEnabled ? getSoundModeLabel(activeMode) : "사운드 꺼짐"} · {statusLabel}</span>
     </div>
   );
 };

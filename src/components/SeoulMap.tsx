@@ -36,6 +36,16 @@ type MarkerEntry = {
   kind: "weather" | "train";
   element: HTMLButtonElement;
   overlay: KakaoCustomOverlay;
+  currentLat: number;
+  currentLng: number;
+};
+
+const areSameCoordinates = (a?: Coordinates, b?: Coordinates) => {
+  if (!a || !b) {
+    return false;
+  }
+
+  return a.lat === b.lat && a.lng === b.lng;
 };
 
 const SEOUL_CENTER: Coordinates = { lat: 37.5665, lng: 126.978 };
@@ -63,21 +73,43 @@ const renderWeatherMarker = (element: HTMLButtonElement, zone: WeatherZone) => {
   `;
 };
 
+const lineNumberOf = (line: string) => line.replace(/호선$/, "") || line;
+
+const isTrainMovingStatus = (train: SubwayTrain) =>
+  /(진입|출발|전역출발|접근|통과)/.test(train.currentLocation);
+
 const renderTrainMarker = (element: HTMLButtonElement, train: SubwayTrain) => {
   const lineColor = getSubwayLineColor(train.line);
+  const lineNumber = lineNumberOf(train.line);
+  const isMovingStatus = isTrainMovingStatus(train);
+
   element.dataset.kind = "train";
   element.dataset.id = train.id;
-  element.className = `sn-map-marker sn-map-marker--train${
-    train.isDelayed ? " sn-map-marker--delayed" : ""
+  element.className = `sn-train-marker${train.isDelayed ? " sn-train-marker--delayed" : ""}${
+    isMovingStatus ? " sn-train-marker--active" : " sn-train-marker--stationary"
   }`;
   element.style.setProperty("--sn-line-color", lineColor);
   element.setAttribute("aria-label", `${train.line} ${train.currentLocation}`);
   element.innerHTML = `
-    <span class="sn-map-marker__pulse" aria-hidden="true"></span>
-    <span class="sn-map-marker__dot" style="background:${lineColor};">🚇</span>
-    <span class="sn-map-marker__label">${escapeHtml(train.line)} · ${escapeHtml(
-      train.currentLocation,
-    )}</span>
+    <span class="sn-train-marker__pulse" aria-hidden="true"></span>
+    <span class="sn-train-marker__body" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="sn-shine-${escapeHtml(train.id)}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.55)" />
+            <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+          </linearGradient>
+        </defs>
+        <g transform="translate(16 16)">
+          <rect x="-9" y="-12" width="18" height="22" rx="6" fill="${lineColor}" stroke="rgba(15,23,42,0.4)" stroke-width="1" />
+          <rect x="-7" y="-10" width="14" height="6" rx="2" fill="rgba(255,255,255,0.92)" />
+          <rect x="-9" y="-12" width="18" height="6" rx="6" fill="url(#sn-shine-${escapeHtml(train.id)})" />
+          <circle cx="-5" cy="8" r="1.4" fill="#fef9c3" />
+          <circle cx="5" cy="8" r="1.4" fill="#fef9c3" />
+        </g>
+      </svg>
+    </span>
+    <span class="sn-train-marker__badge" style="background:${lineColor};">${escapeHtml(lineNumber)}</span>
   `;
 };
 
@@ -161,7 +193,9 @@ export const SeoulMap = ({ onSoundModeRequest, snapshot }: SeoulMapProps) => {
 
     return () => {
       cancelled = true;
-      markerRegistryRef.current.forEach((entry) => entry.overlay.setMap(null));
+      markerRegistryRef.current.forEach((entry) => {
+        entry.overlay.setMap(null);
+      });
       markerRegistryRef.current.clear();
       infoOverlayRef.current?.setMap(null);
       infoOverlayRef.current = null;
@@ -178,20 +212,17 @@ export const SeoulMap = ({ onSoundModeRequest, snapshot }: SeoulMapProps) => {
     const registry = markerRegistryRef.current;
     const seen = new Set<string>();
 
-    const upsertMarker = (
+    const upsertWeatherMarker = (
       key: string,
-      kind: MarkerEntry["kind"],
       coordinates: Coordinates,
       paint: (element: HTMLButtonElement) => void,
       onSelect: () => void,
     ) => {
       seen.add(key);
       const existing = registry.get(key);
-      const position = new maps.LatLng(coordinates.lat, coordinates.lng);
 
       if (existing) {
         paint(existing.element);
-        existing.overlay.setPosition(position);
         return;
       }
 
@@ -204,24 +235,88 @@ export const SeoulMap = ({ onSoundModeRequest, snapshot }: SeoulMapProps) => {
       });
 
       const overlay = new maps.CustomOverlay({
-        position,
+        position: new maps.LatLng(coordinates.lat, coordinates.lng),
         content: element,
         xAnchor: 0.5,
         yAnchor: 0.5,
-        zIndex: kind === "train" ? 5 : 3,
+        zIndex: 3,
         clickable: true,
       });
 
       overlay.setMap(mapRef.current);
-      registry.set(key, { key, kind, element, overlay });
+      registry.set(key, {
+        key,
+        kind: "weather",
+        element,
+        overlay,
+        currentLat: coordinates.lat,
+        currentLng: coordinates.lng,
+      });
+    };
+
+    const upsertTrainMarker = (
+      key: string,
+      train: SubwayTrain,
+      paint: (element: HTMLButtonElement) => void,
+      onSelect: () => void,
+    ) => {
+      seen.add(key);
+      const targetCoord = train.coordinates;
+      if (!targetCoord) {
+        return;
+      }
+
+      const existing = registry.get(key);
+
+      if (existing) {
+        paint(existing.element);
+
+        const currentCoord = {
+          lat: existing.currentLat,
+          lng: existing.currentLng,
+        };
+
+        if (!areSameCoordinates(currentCoord, targetCoord)) {
+          existing.overlay.setPosition(new maps.LatLng(targetCoord.lat, targetCoord.lng));
+          existing.currentLat = targetCoord.lat;
+          existing.currentLng = targetCoord.lng;
+        }
+        return;
+      }
+
+      const element = document.createElement("button");
+      element.type = "button";
+      paint(element);
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        onSelect();
+      });
+
+      const overlay = new maps.CustomOverlay({
+        position: new maps.LatLng(targetCoord.lat, targetCoord.lng),
+        content: element,
+        xAnchor: 0.5,
+        yAnchor: 0.5,
+        zIndex: 5,
+        clickable: true,
+      });
+
+      overlay.setMap(mapRef.current);
+      registry.set(key, {
+        key,
+        kind: "train",
+        element,
+        overlay,
+        currentLat: targetCoord.lat,
+        currentLng: targetCoord.lng,
+      });
     };
 
     snapshot.weatherZones.forEach((zone) => {
-      upsertMarker(
+      upsertWeatherMarker(
         `weather:${zone.id}`,
-        "weather",
         zone.coordinates,
-        (element) => renderWeatherMarker(element, zone),
+        (element: HTMLButtonElement) => renderWeatherMarker(element, zone),
         () => {
           setSelection({
             kind: "weather",
@@ -237,11 +332,10 @@ export const SeoulMap = ({ onSoundModeRequest, snapshot }: SeoulMapProps) => {
     });
 
     trainsWithCoordinates.forEach((train) => {
-      upsertMarker(
+      upsertTrainMarker(
         `train:${train.id}`,
-        "train",
-        train.coordinates,
-        (element) => renderTrainMarker(element, train),
+        train,
+        (element: HTMLButtonElement) => renderTrainMarker(element, train),
         () => {
           setSelection({
             kind: "train",
@@ -264,12 +358,13 @@ export const SeoulMap = ({ onSoundModeRequest, snapshot }: SeoulMapProps) => {
   useEffect(() => {
     const registry = markerRegistryRef.current;
     registry.forEach((entry) => {
-      const isSelected =
-        (entry.kind === selection?.kind &&
-          entry.element.dataset.id === selection.id) ??
-        false;
+      const isSelected = Boolean(
+        entry.kind === selection?.kind && entry.element.dataset.id === selection.id,
+      );
 
-      entry.element.classList.toggle("sn-map-marker--selected", Boolean(isSelected));
+      const selectedClass =
+        entry.kind === "train" ? "sn-train-marker--selected" : "sn-map-marker--selected";
+      entry.element.classList.toggle(selectedClass, isSelected);
     });
   }, [selection, snapshot]);
 
@@ -330,7 +425,7 @@ export const SeoulMap = ({ onSoundModeRequest, snapshot }: SeoulMapProps) => {
     snapshot.trains.length - trainsWithCoordinates.length;
 
   return (
-    <div className="relative min-h-[360px] overflow-hidden rounded-[18px] border border-border bg-background sm:min-h-[440px]">
+    <div className="relative h-full w-full overflow-hidden bg-background">
       <div
         ref={containerRef}
         className="absolute inset-0"
@@ -355,21 +450,21 @@ export const SeoulMap = ({ onSoundModeRequest, snapshot }: SeoulMapProps) => {
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute left-4 top-4 z-10 flex gap-2">
-        <div className="rounded-2xl border border-border bg-card/90 px-3 py-2 shadow-sm backdrop-blur">
+      <div className="pointer-events-none absolute bottom-4 left-4 z-10 flex gap-2">
+        <div className="sn-glass rounded-2xl px-3 py-2">
           <p className="flex items-center gap-2 text-xs font-bold text-primary">
             <CloudRain className="h-3.5 w-3.5" aria-hidden="true" />
             비 {rainyCount}
           </p>
         </div>
-        <div className="rounded-2xl border border-border bg-card/90 px-3 py-2 shadow-sm backdrop-blur">
+        <div className="sn-glass rounded-2xl px-3 py-2">
           <p className="flex items-center gap-2 text-xs font-bold text-foreground">
             <Train className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
             지연 {delayedCount}
           </p>
         </div>
         {missingCoordinates > 0 ? (
-          <div className="rounded-2xl border border-border bg-card/90 px-3 py-2 shadow-sm backdrop-blur">
+          <div className="sn-glass rounded-2xl px-3 py-2">
             <p className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
               <MapIcon className="h-3.5 w-3.5" aria-hidden="true" />
               좌표 미매칭 {missingCoordinates}

@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Database, RefreshCw, WifiOff } from "lucide-react";
+import {
+  BarChart3,
+  CheckCircle2,
+  Database,
+  Lightbulb,
+  RefreshCw,
+  SlidersHorizontal,
+  WifiOff,
+  X,
+} from "lucide-react";
 import { DashboardHeader } from "./DashboardHeader";
 import { InsightPanel } from "./InsightPanel";
-import { SeoulMapPanel } from "./SeoulMapPanel";
+import { SeoulMap } from "./SeoulMap";
 import { SeasonalOverlay } from "./SeasonalOverlay";
 import { SoundToggle } from "./SoundToggle";
 import { SummaryCards } from "./SummaryCards";
@@ -27,6 +36,18 @@ type DataStatusItem = {
   label: string;
   result?: ApiResourceResult<unknown>;
 };
+
+type PanelId = "insights" | "summary" | "timeline";
+
+const panelOpeners: Array<{
+  id: PanelId;
+  label: string;
+  icon: typeof Lightbulb;
+}> = [
+  { id: "insights", label: "인사이트", icon: Lightbulb },
+  { id: "summary", label: "요약", icon: BarChart3 },
+  { id: "timeline", label: "타임랩스", icon: SlidersHorizontal },
+];
 
 const getRecommendedSoundMode = (
   snapshot: TimeSnapshot,
@@ -62,57 +83,41 @@ const DataStatusBar = ({ items }: { items: DataStatusItem[] }) => {
   const statusText = isInitialLoading
     ? "실시간 데이터 확인 중"
     : hasApiFallback || hasQueryError
-      ? "API 연결 실패 · fixture fallback"
+      ? "API 실패 · fixture"
       : hasApiSuccess && !hasFixtureFallback
-        ? "API 데이터 연결됨"
-        : "fixture fallback으로 작동 중";
+        ? "API 연결됨"
+        : "fixture로 작동 중";
 
   return (
-    <section className="flex flex-col gap-3 rounded-[20px] border border-border bg-card px-4 py-3 shadow-soft sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-center gap-2">
-        <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${
-            hasApiFallback || hasQueryError ? "bg-danger/10 text-danger" : "bg-primary/10 text-primary"
-          }`}
-        >
-          <Icon
-            className={`h-4 w-4 ${isInitialLoading || isRefreshing ? "animate-spin" : ""}`}
-            aria-hidden="true"
-          />
-        </div>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-bold">{statusText}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            Hono 프록시 연결 시 VITE_SEOUL_NOW_API_BASE_URL=/api 구조로 전환됩니다.
-          </p>
-        </div>
+    <div className="sn-glass flex items-center gap-2 rounded-full px-3 py-1.5 text-xs">
+      <div
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+          hasApiFallback || hasQueryError ? "bg-danger/15 text-danger" : "bg-primary/15 text-primary"
+        }`}
+      >
+        <Icon
+          className={`h-3.5 w-3.5 ${isInitialLoading || isRefreshing ? "animate-spin" : ""}`}
+          aria-hidden="true"
+        />
       </div>
-
-      <div className="flex flex-wrap gap-2">
+      <p className="truncate font-bold">{statusText}</p>
+      <div className="hidden items-center gap-1 sm:flex">
         {items.map((item) => {
           const isFallback = item.result?.source !== "api";
-          const sourceLabel = item.isLoading
-            ? "동기화"
-            : item.result?.source === "api"
-              ? "API"
-              : "fixture";
-
           return (
             <span
               key={item.label}
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${
-                isFallback
-                  ? "bg-muted text-muted-foreground"
-                  : "bg-success/10 text-success"
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-bold ${
+                isFallback ? "bg-muted text-muted-foreground" : "bg-success/15 text-success"
               }`}
             >
-              <Database className="h-3.5 w-3.5" aria-hidden="true" />
-              {item.label} {sourceLabel}
+              <Database className="h-3 w-3" aria-hidden="true" />
+              {item.label}
             </span>
           );
         })}
       </div>
-    </section>
+    </div>
   );
 };
 
@@ -134,6 +139,20 @@ export const SeoulDashboard = () => {
   const ambientSound = useAmbientSound(ambientSoundMode, soundVolume);
   const currentTime = useCurrentTime();
   const [shareComplete, setShareComplete] = useState(false);
+  const [mobileSheet, setMobileSheet] = useState<"insights" | "summary" | null>(null);
+  const [closedPanels, setClosedPanels] = useState<Record<PanelId, boolean>>({
+    insights: false,
+    summary: false,
+    timeline: false,
+  });
+
+  const closePanel = (panelId: PanelId) => {
+    setClosedPanels((prev) => ({ ...prev, [panelId]: true }));
+  };
+
+  const openPanel = (panelId: PanelId) => {
+    setClosedPanels((prev) => ({ ...prev, [panelId]: false }));
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -260,49 +279,94 @@ export const SeoulDashboard = () => {
   if (isLoading || !data || !liveSnapshot) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-        <div className="rounded-[20px] border border-border bg-card px-6 py-5 shadow-soft">
-          서울의 지금을 불러오는 중
-        </div>
+        <div className="sn-glass rounded-[20px] px-6 py-5">서울의 지금을 불러오는 중</div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background px-3 py-4 text-foreground sm:px-6 lg:px-8">
+    <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
       {resolvedSeasonTheme ? (
         <SeasonalOverlay
           isLastTrainTime={resolvedSeasonTheme.isLastTrainTime}
           theme={resolvedSeasonTheme.theme}
         />
       ) : null}
-      <div className="mx-auto grid max-w-7xl gap-4 lg:gap-5">
-        <DashboardHeader
-          cityMood={liveSnapshot.summary.cityMood}
-          currentTime={currentTime}
-          headline={liveSnapshot.summary.headline}
-          shareComplete={shareComplete}
-          soundControl={
-            <SoundToggle
-              mode={ambientSoundMode}
-              recommendedMode={recommendedSoundMode}
-              status={ambientSound.status}
-              volume={soundVolume}
-              onDisable={handleDisableSound}
-              onEnableMode={handleEnableSoundMode}
-              onVolumeChange={setSoundVolume}
-            />
-          }
-          theme={theme}
-          onShare={handleShare}
-          onToggleTheme={toggleTheme}
-        />
 
-        <DataStatusBar items={dataStatusItems} />
+      {/* Fullscreen map */}
+      <div className="fixed inset-0 z-0">
+        <SeoulMap snapshot={liveSnapshot} onSoundModeRequest={handleEnableSoundMode} />
+      </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(21rem,0.45fr)] lg:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,0.42fr)]">
-          <div className="grid min-w-0 gap-4 lg:gap-5">
-            <SeoulMapPanel snapshot={liveSnapshot} onSoundModeRequest={handleEnableSoundMode} />
-            <SummaryCards snapshot={liveSnapshot} soundMode={ambientSoundMode} />
+      {/* Top header */}
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-30 flex flex-col gap-2 px-3 pt-3 sm:px-5 sm:pt-4">
+        <div className="pointer-events-auto sn-glass rounded-[20px] px-3 py-2.5 sm:px-4 sm:py-3">
+          <DashboardHeader
+            cityMood={liveSnapshot.summary.cityMood}
+            currentTime={currentTime}
+            headline={liveSnapshot.summary.headline}
+            shareComplete={shareComplete}
+            soundControl={
+              <SoundToggle
+                mode={ambientSoundMode}
+                recommendedMode={recommendedSoundMode}
+                status={ambientSound.status}
+                volume={soundVolume}
+                onDisable={handleDisableSound}
+                onEnableMode={handleEnableSoundMode}
+                onVolumeChange={setSoundVolume}
+              />
+            }
+            theme={theme}
+            onShare={handleShare}
+            onToggleTheme={toggleTheme}
+          />
+        </div>
+        <div className="pointer-events-auto flex items-center justify-between gap-2">
+          <DataStatusBar items={dataStatusItems} />
+          <div className="flex items-center gap-2 lg:hidden">
+            <button
+              type="button"
+              onClick={() => {
+                openPanel("summary");
+                setMobileSheet((prev) => (prev === "summary" ? null : "summary"));
+              }}
+              className={`sn-glass rounded-full px-3 py-1.5 text-xs font-bold ${
+                mobileSheet === "summary" ? "text-primary" : "text-foreground"
+              }`}
+            >
+              요약
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                openPanel("insights");
+                setMobileSheet((prev) => (prev === "insights" ? null : "insights"));
+              }}
+              className={`sn-glass rounded-full px-3 py-1.5 text-xs font-bold ${
+                mobileSheet === "insights" ? "text-primary" : "text-foreground"
+              }`}
+            >
+              인사이트
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Left: insights (lg+) */}
+      {!closedPanels.insights ? (
+      <aside className="pointer-events-none fixed left-3 top-32 z-20 hidden w-[22rem] xl:w-[24rem] lg:block">
+        <div className="pointer-events-auto sn-glass sn-scroll-area max-h-[calc(100vh-22rem)] overflow-y-auto rounded-[20px] p-3 sm:p-4">
+          <div className="mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => closePanel("insights")}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/70 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+              aria-label="인사이트 패널 닫기"
+              title="닫기"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
           </div>
           <InsightPanel
             cityMood={liveSnapshot.summary.cityMood}
@@ -312,19 +376,113 @@ export const SeoulDashboard = () => {
             snapshot={liveSnapshot}
           />
         </div>
+      </aside>
+      ) : null}
 
-        <TimeSlider
-          isPlaying={isPlaying}
-          resolvedSeason={resolvedSeasonTheme?.season ?? liveSnapshot.summary.season}
-          seasonThemes={data.seasonThemes}
-          seasonThemePreference={seasonThemePreference}
-          selectedSnapshotId={liveSnapshot.id}
-          snapshots={data.snapshots}
-          onSeasonThemePreferenceChange={setSeasonThemePreference}
-          onSelectSnapshot={selectSnapshot}
-          onTogglePlaying={togglePlaying}
-        />
+      {/* Right: summary cards (lg+) */}
+      {!closedPanels.summary ? (
+      <aside className="pointer-events-none fixed right-3 top-32 z-20 hidden w-[22rem] xl:w-[24rem] lg:block">
+        <div className="pointer-events-auto sn-glass rounded-[20px] p-3 sm:p-4">
+          <div className="mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => closePanel("summary")}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/70 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+              aria-label="요약 패널 닫기"
+              title="닫기"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+          <SummaryCards snapshot={liveSnapshot} soundMode={ambientSoundMode} />
+        </div>
+      </aside>
+      ) : null}
+
+      {/* Mobile bottom sheet */}
+      {mobileSheet ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-32 top-32 z-20 px-3 lg:hidden">
+          <div className="pointer-events-auto sn-glass sn-scroll-area max-h-full overflow-y-auto rounded-[20px] p-3 sm:p-4">
+            <div className="mb-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setMobileSheet(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/70 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                aria-label="패널 닫기"
+                title="닫기"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            {mobileSheet === "summary" ? (
+              <SummaryCards snapshot={liveSnapshot} soundMode={ambientSoundMode} />
+            ) : (
+              <InsightPanel
+                cityMood={liveSnapshot.summary.cityMood}
+                error={insightError}
+                insights={generatedInsights}
+                isLoading={isInsightLoading}
+                snapshot={liveSnapshot}
+              />
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {panelOpeners.some((panel) => closedPanels[panel.id]) ? (
+        <div className="pointer-events-none fixed right-3 top-32 z-30 flex flex-col gap-2">
+          {panelOpeners.map((panel) => {
+            if (!closedPanels[panel.id]) {
+              return null;
+            }
+
+            const Icon = panel.icon;
+
+            return (
+              <button
+                key={panel.id}
+                type="button"
+                onClick={() => openPanel(panel.id)}
+                className="pointer-events-auto sn-glass flex h-10 w-10 items-center justify-center rounded-full text-foreground transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                aria-label={`${panel.label} 패널 열기`}
+                title={`${panel.label} 열기`}
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {/* Bottom: TimeSlider */}
+      {!closedPanels.timeline ? (
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 px-3 pb-3 sm:px-5 sm:pb-4">
+        <div className="pointer-events-auto sn-glass mx-auto max-w-5xl rounded-[20px] p-3 sm:p-4">
+          <div className="mb-1 flex justify-end">
+            <button
+              type="button"
+              onClick={() => closePanel("timeline")}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/70 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+              aria-label="타임랩스 패널 닫기"
+              title="닫기"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+          <TimeSlider
+            isPlaying={isPlaying}
+            resolvedSeason={resolvedSeasonTheme?.season ?? liveSnapshot.summary.season}
+            seasonThemes={data.seasonThemes}
+            seasonThemePreference={seasonThemePreference}
+            selectedSnapshotId={liveSnapshot.id}
+            snapshots={data.snapshots}
+            onSeasonThemePreferenceChange={setSeasonThemePreference}
+            onSelectSnapshot={selectSnapshot}
+            onTogglePlaying={togglePlaying}
+          />
+        </div>
       </div>
+      ) : null}
     </main>
   );
 };

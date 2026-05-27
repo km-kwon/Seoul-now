@@ -5,10 +5,7 @@ import type {
   SeoulRealtimePositionResponse,
 } from "../types/api";
 import { createApiResult, createFixtureResult } from "./apiClient";
-import {
-  findStationCoordinates,
-  interpolateBetweenStations,
-} from "../data/stationCoordinates";
+import { findStationCoordinates } from "../data/stationCoordinates";
 
 const REALTIME_ENDPOINT = "/seoul-openapi/json/realtimePosition/0/200";
 
@@ -22,45 +19,55 @@ const trainStatusLabel: Record<string, string> = {
 const isOpenApiKeyConfigured = () =>
   Boolean(import.meta.env.VITE_SEOUL_OPENAPI_KEY?.trim());
 
+const cleanApiText = (value?: string) => {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : undefined;
+};
+
 const buildCurrentLocation = (item: SeoulRealtimePositionItem) => {
-  const statn = item.statnNm ?? "위치 확인 중";
+  const statn = cleanApiText(item.statnNm);
   const status = item.trainSttus ? trainStatusLabel[item.trainSttus] : undefined;
+
+  if (!statn) {
+    return "위치 확인 중";
+  }
 
   return status ? `${statn}역 ${status}` : `${statn}역`;
 };
 
 const buildDirection = (item: SeoulRealtimePositionItem) => {
-  if (item.statnTnm) {
-    return `${item.statnTnm} 방면`;
+  const terminalStation = cleanApiText(item.statnTnm);
+
+  if (terminalStation) {
+    return `${terminalStation} 방면`;
   }
 
-  return item.updnLine === "0" ? "상행" : "하행";
+  if (item.updnLine === "0") {
+    return "상행";
+  }
+
+  if (item.updnLine === "1") {
+    return "하행";
+  }
+
+  return "방면 확인 중";
 };
 
 const mapItemToTrain = (
   item: SeoulRealtimePositionItem,
   fallbackTrains: SubwayTrain[],
   index: number,
+  requestedLine?: string,
 ): SubwayTrain => {
-  const line = item.subwayNm ?? "지하철";
+  const line = cleanApiText(item.subwayNm) ?? requestedLine ?? "지하철";
   const fallback =
     fallbackTrains.find((train) => train.line === line) ?? fallbackTrains[index];
 
-  const currentStation = item.statnNm ?? "";
-  const nextStation = item.statnTnm ?? "";
-
-  let coordinates =
-    findStationCoordinates(currentStation, line) ??
-    findStationCoordinates(nextStation, line);
-
-  if (
-    item.trainSttus === "2" ||
-    item.trainSttus === "3"
-  ) {
-    coordinates =
-      interpolateBetweenStations(currentStation, nextStation, line, 0.5) ??
-      coordinates;
-  }
+  const currentStation = cleanApiText(item.statnNm);
+  const terminalStation = cleanApiText(item.statnTnm);
+  const coordinates = currentStation
+    ? findStationCoordinates(currentStation, line)
+    : undefined;
 
   return {
     id: `seoul-${item.subwayId ?? line}-${item.trainNo ?? index}`,
@@ -69,7 +76,7 @@ const mapItemToTrain = (
     direction: buildDirection(item),
     isDelayed: false,
     congestion: fallback?.congestion ?? 60,
-    nextStation: nextStation || "다음 역 확인 중",
+    nextStation: terminalStation ?? currentStation ?? "위치 갱신 대기",
     arrivalMinutes: item.trainSttus === "1" ? 0 : item.trainSttus === "0" ? 1 : 3,
     coordinates,
   };
@@ -118,13 +125,18 @@ export const getRealtimeSubwayPositions = async ({
           throw new Error(`Seoul OpenAPI ${line} request failed: ${response.status}`);
         }
 
-        return (await response.json()) as SeoulRealtimePositionResponse;
+        return {
+          line,
+          response: (await response.json()) as SeoulRealtimePositionResponse,
+        };
       }),
     );
 
     const merged = responses
-      .flatMap((response) => response.realtimePositionList ?? [])
-      .map((item, index) => mapItemToTrain(item, fallbackTrains, index))
+      .flatMap(({ line, response }) =>
+        (response.realtimePositionList ?? []).map((item) => ({ item, line })),
+      )
+      .map(({ item, line }, index) => mapItemToTrain(item, fallbackTrains, index, line))
       .filter((train) => train.coordinates !== undefined);
 
     if (merged.length === 0) {
